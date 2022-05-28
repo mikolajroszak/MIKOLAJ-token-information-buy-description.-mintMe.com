@@ -1,0 +1,39 @@
+const appendScript = (url, id) => {
+  var script = document.createElement('script');
+  script.id = id
+  script.type = 'text/javascript';
+  script.src = url;
+  document.body.appendChild( script );
+}
+
+// DD: Place all not-required-on-page-load scripts here
+const loadMarketingScripts = () => {
+  // Klaviyo
+  appendScript(
+    '//static.klaviyo.com/onsite/js/klaviyo.js?company_id=cE37ve',
+    'klaviyo-snippet'
+  )}
+
+// DD: Load marketing scripts on scroll (reduce time to interaction)
+window.addEventListener('scroll',() =>
+  setTimeout(loadMarketingScripts, 1000),
+  { once: true }
+);
+
+// DD: Taken from LazySizes README file
+document.addEventListener('lazybeforeunveil', function(e){
+    var bg = e.target.getAttribute('data-bg');
+    if(bg){
+      e.target.style.backgroundImage = 'url(' + bg + ')';
+    }
+});
+
+// DD: Tag menu interactions in HotJar
+const hotJarTags = () => {
+  document.querySelectorAll('a.mega-menu-parent').forEach((el) => {
+    el.addEventListener('mouseover',() => {
+      hj('tagRecording', ['menu-interaction',el.dataset.dropdownRel])
+    })
+  })
+}
+window.addEventListener('load', hotJarTags)

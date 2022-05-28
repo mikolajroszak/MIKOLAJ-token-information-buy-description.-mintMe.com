@@ -1,0 +1,51 @@
+(function () {
+  const hostname = 'www.kaged.com'
+  const proxy = 'kaged.com'
+  const url = new URL(window.location.href)
+
+  const exclude = document.currentScript.getAttribute('data-exclude') || ''
+  const createVariants = x => x ? (new Set([...x.split(',').map(x => ([x = '/' + x.trim().split('/').filter(x => x).join('/'), x + '/'])).flat()])) : new Set()
+  const custom = createVariants(exclude)
+  const customMatch = custom.has(url.pathname)
+
+  const scripts = [...document.getElementsByTagName('script')]
+  const adminBarEnabled = scripts.find(script => {
+    if (script.id === 'ems-redirect') return false
+    return script.innerHTML ?
+      script.innerHTML.indexOf('AdminBarInjector') > -1 ||
+      script.innerHTML.indexOf('PreviewBarInjector') > -1 :
+      false
+  })
+
+  const skipRedirect = (
+    adminBarEnabled ||
+    (window.Shopify && window.Shopify.designMode) ||
+    localStorage.getItem('em-no-redirect') ||
+    url.pathname.endsWith('/pf_preview') ||
+    url.searchParams.has('no-redirect') ||
+    url.searchParams.has('_ab') ||
+    url.searchParams.has('_fd') ||
+    url.searchParams.has('_sc') ||
+    url.searchParams.has('fts') ||
+    url.searchParams.has('checkout_url') ||
+    url.searchParams.has('preview_theme_id') ||
+    url.hostname.includes('shopifypreview.com') ||
+    url.hostname.includes('shogun.page') ||
+    url.hostname.includes('app.gempages.net') ||
+    url.hostname.includes('app.getshogun.com') ||
+    url.href === 'about:srcdoc' ||
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    customMatch
+  )
+
+  if (!skipRedirect && url.hostname !== hostname) {
+    url.hostname = hostname
+    window.location.href = url.toString()
+  }
+
+  if (skipRedirect && customMatch && url.hostname !== proxy) {
+    url.hostname = proxy
+    window.location.href = url.toString()
+  }
+})()

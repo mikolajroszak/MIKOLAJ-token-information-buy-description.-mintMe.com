@@ -1,0 +1,366 @@
+(function() {
+  let allowed = null
+
+  const body = document.getElementsByTagName('body')[0]
+
+  // Turbo theme specific
+  function showModal(message) {
+    // HotJar tag
+    hj('tagRecording', ['cart-limit'])
+
+    body.insertAdjacentHTML('beforeend',`
+    <div class="cart-alert remodal-is-opened remodal-wrapper">
+      <div class="remodal quick-shop js-quick-shop remodal-is-initialized remodal-is-opened" data-remodal-id="size-chart" data-remodal-options="hashTracking: false">
+        <a data-remodal-action="close" class="remodal-close"></a>
+        <div class="container section">
+          <h3>Cart Check</h3>
+          <p class="error_text">${message}</p>
+          <a data-remodal-action="close" class="close_btn action_button--secondary">OK</a>
+        </div>
+      </div>
+    </div>
+    `)
+    $('body').addClass('cart-remodal');
+    $('body').on('click','.cart-alert', function() {
+      hideModel();
+    });
+  }
+
+  // Turbo theme specific
+  function hideModel(){
+    $('.cart-alert').remove();
+    $('body').removeClass('cart-remodal');
+  }
+
+  // Turbo theme specific
+  function revertCart() {
+    // List of theme specific fixes
+    // Turbo theme
+    $('.product-quantity-box .js-change-quantity').removeClass('is-disabled')
+  }
+
+  async function validateCart({
+    lineItem,
+    addQuantity = false,
+    form = null,
+    xhr = null,
+    jqXhrOptions = null
+  }) {
+    // TODO: Exclude samples and other configurable products
+
+    let variantQuantities = {}
+    let title = null
+
+    // ref: https://dmitripavlutin.com/javascript-fetch-async-await/
+    const fetchCart = await fetch('/cart.json')
+    const cart = await fetchCart.json()
+    let lineItemId = parseInt(lineItem.id)
+    const lineItemLine = parseInt(lineItem.line)
+    const lineItemQuantity = parseInt(lineItem.quantity)
+
+    cart.items.forEach((item, index) => {
+      if (variantQuantities[item.variant_id])
+        variantQuantities[item.variant_id] += item.quantity
+      else
+        variantQuantities[item.variant_id] = item.quantity
+
+      if(lineItemId === parseInt(item.id))
+        title = item.title
+      else if(lineItemLine === index + 1) {
+        title = item.title
+        lineItemId = item.id
+      }
+    })
+
+    // Only way to get names is to loop over /products.json?limit=250
+    const currentQuantity = variantQuantities[lineItemId] || 0
+    let variant = null
+    const check1 = addQuantity && (currentQuantity + lineItemQuantity) > 10
+    const check2 = !addQuantity && lineItemQuantity > 10
+    if (check1 || check2) {
+      if(!title) {
+        const fetchProducts = await fetch('/products.json?limit=250')
+        const products = await fetchProducts.json()
+        const product = products.products.find((p) => {
+          variant = p.variants.find(v => parseInt(v.id) === lineItemId)
+          return !!variant
+        })
+        title = `${product.title} - ${variant.title}`
+      }
+      showModal(`You can only purchase a <span style='font-weight:800'>max of 10</span> of ${title}`)
+      //if(jqXhrOptions) jqXhrOptions.success(cart) // better solution?
+      revertCart()
+      return false;
+    }
+
+    // TODO: Check when carts are merged
+    const check3 = addQuantity && (cart.item_count + lineItemQuantity) > 20
+    const check4 = !addQuantity && (cart.item_count - currentQuantity + lineItemQuantity > 20)
+    if(check3 || check4) {
+      showModal(`You can only have a <span style='font-weight:bold'>max of 20 items</span> in your cart.`)
+      //if(jqXhrOptions) jqXhrOptions.success(cart) // better solution?
+      revertCart()
+      return false;
+    }
+
+    // if form, resubmit, but ignore this time
+    // if AJAX request, recreate
+    // TODO: How to account for dynamic checkout buttons?
+    if(form) {
+      console.log('allowed', form)
+      allowed = form
+      form.submit()
+    }
+    else if(jqXhrOptions) {
+      console.log('allowed', jqXhrOptions)
+      allowed = jqXhrOptions.url
+      $.ajax(jqXhrOptions)
+    }
+    else if(xhr) {
+      console.log('allowed', xhr)
+    }
+  }
+
+  // jQuery
+  // TODO: Double check that jQuery is loaded?
+  if ('undefined' != typeof window.jQuery) {
+    jQuery.ajaxPrefilter((options, originalOptions, jqXhr) => {
+      if(allowed === options.url) {
+        allowed = null
+        return
+      }
+
+      if(!originalOptions.data) return
+      if([NaN, 0].includes(parseInt(originalOptions.data.quantity))) {
+        return
+      }
+
+      // add - add/update one or more line items
+      if(options.url.indexOf('/cart/add.js') != -1) {
+        console.log(`cart request ${options.url}`, options, originalOptions, jqXhr)
+        jqXhr.abort()
+        validateCart({
+          addQuantity: true,
+          lineItem: originalOptions.data.items,
+          jqXhrOptions: originalOptions
+        })
+      }
+
+      // change - update one line item
+      if(options.url.indexOf('/cart/change.js') != -1) {
+        console.log(`cart request ${options.url}`, options, originalOptions, jqXhr)
+        jqXhr.abort()
+        validateCart({
+          lineItem: originalOptions.data,
+          jqXhrOptions: originalOptions
+        })
+      }
+
+      // update - update one or more line items
+      if(options.url.indexOf('/cart/update.js') != -1) {
+        console.log(`cart request ${options.url}`, options, originalOptions, jqXhr)
+        jqXhr.abort()
+        validateCart({
+          lineItems: originalOptions.data.updates.map((k,v) => Object.fromEntries(['id',k],['quantity',v])),
+          jqXhrOptions: originalOptions
+        })
+      }
+    })
+  }
+
+  // fetch
+
+  // XMLHttpRequest
+  /*
+  (function(send) {
+    XMLHttpRequest.prototype.send = function(data) {
+      if(this._url.indexOf("/cart/add.js") != -1) {
+        // TODO: this = XMLHttpRequest, not the jQuery function
+        var newLineItem = Object.fromEntries(new URLSearchParams(data))
+        validateCart({ lineItem: newLineItem, xhr: this })
+      }
+      else if(this._url.indexOf("/cart/change.js") != -1) {
+        var newLineItem = Object.fromEntries(new URLSearchParams(data))
+        validateCart({ lineItem: newLineItem, xhr: this })
+      }
+      // also do for update.js and change.js
+      else {
+        send.call(this, data);
+      }
+    };
+  })(XMLHttpRequest.prototype.send);
+  */
+
+  // product page form
+  const productPageForms = document.querySelectorAll('form[action="/cart/add"]')
+  productPageForms.forEach((form) => {
+    form.addEventListener('submit', function(e) {
+      if(allowed == form) {
+        allowed = null
+        return
+      }
+      // Ref: https://gomakethings.com/serializing-form-data-with-the-vanilla-js-formdata-object/
+      var newLineItem = Object.fromEntries(new FormData(e.target))
+      // TODO: Account for multiple additions / updates
+      validateCart({
+        lineItem: newLineItem,
+        addQuantity: true,
+        form: form
+      })
+      // TODO: To make this faster, could store the cart ever ten seconds or try fetch here (if that can be inline?)
+      e.preventDefault()
+    });
+  });
+
+  // cart page form
+  /*
+  const cartForms = document.querySelectorAll('form[action="/cart"]')
+  cartForms.forEach((form) => {
+    form.addEventListener('submit', function(e) {
+      if(allowed == form) {
+        allowed = null
+        return
+      }
+      // Ref: https://gomakethings.com/serializing-form-data-with-the-vanilla-js-formdata-object/
+      var f = Object.fromEntries(new FormData(e.target))
+      console.log('form', f)
+      // validateCart({ lineItem: newLineItem, form: form })
+      e.preventDefault()
+    });
+  });
+  */
+
+})();
+
+/*
+// Ref: https://stackoverflow.com/questions/44728723/hook-all-fetch-api-ajax-requests
+var originalFetch = fetch;
+fetch = (input, init) => {
+    debugger; // do what ever you want with request or reject it immediately
+    return originalFetch(input, init).then(response => {
+        // it is not important to create new Promise in ctor, we can await existing one, then wrap result into new one
+        return new Promise((resolve) => {
+            response.clone() // we can invoke `json()` only once, but clone do the trick
+                .json()
+                .then(json => {
+                    debugger; // do what ever you want with response, even `resolve(new Response(body, options));`
+                    resolve(response);
+                });
+        });
+    });
+};
+*/
+
+
+class GWP {
+  constructor() {
+      this.$cart = null
+      this.$gwpSettings = window.gwp
+      this.init()
+  }
+
+  getCartData(reload) {
+      $.getJSON('/cart.json', (data) => {
+          this.$cart = data
+          this.checkGWP(reload)
+      })
+  }
+
+  reloadCart(refresh) {
+    if(refresh) {
+      setTimeout(() => {
+        window.location.href = `/cart?${Date.parse(new Date())}`
+      }, 500)
+    } else {
+      $.getJSON('/cart.json', (data) => {
+        this.$cart = data
+        refreshCart(data)
+      })
+    }
+  }
+
+  checkGWP(reload) {
+    let cartUpdates = []
+    let cartRemovals = []
+      let cartTotal = this.$cart.total_price / 100
+      let cartVariants = []
+      this.$cart.items.forEach((item) => {
+          cartVariants.push(item.variant_id)
+      })
+
+      this.$gwpSettings.forEach((gwp) => {
+          if (cartTotal >= gwp.threshold) {
+              gwp.variants.forEach((variant) => {
+                  if (!cartVariants.includes(parseInt(variant))) {
+                      cartUpdates.push({
+                          id: variant.trim(),
+                          quantity: 1,
+                          properties: {
+                            'Promo': 'Gift with Purchase'
+                          }
+                      })
+                  }
+              })
+          }
+          else if (cartTotal < gwp.threshold){
+              gwp.variants.forEach((variant) => {
+                  if (cartVariants.includes(parseInt(variant))) {
+                      cartRemovals.push({
+                          id: variant.trim(),
+                          quantity: 0,
+                      })
+                  }
+              })
+            }
+      })
+      if (cartRemovals.length > 0) {
+        let cartRemovalPromises = []
+        cartRemovals.forEach((item) => {
+          cartRemovalPromises.push($.ajax({
+            method: 'POST',
+            url: '/cart/change.js',
+            data: item,
+            dataType: 'json'
+            }))
+        });
+        Promise.all(cartRemovalPromises).then(() => {
+          this.reloadCart(reload)
+        })
+      } else {
+        this.reloadCart(reload)
+      }
+
+      if (cartUpdates.length > 0) {
+          $.ajax({
+              method: 'POST',
+              url: '/cart/add.js',
+              data: { items: cartUpdates },
+              dataType: 'json'
+          }).done((data) => {
+            // On the cart page force it to reload after adding the gwp
+            if(document.body.classList.contains('cart')){
+              window.location.href = `/cart?${Date.parse(new Date())}`
+            } else {
+              this.reloadCart(reload)
+            }
+          })
+      } else {
+        this.reloadCart(reload)
+      }
+  }
+
+  init() {
+    if(document.body.classList.contains('cart')){
+      this.getCartData(false)
+    }
+    document.addEventListener('cart:changed', () => {
+      this.getCartData(true)
+    })
+    document.addEventListener('cart:changed-ajax', () => {
+      this.getCartData(false)
+    })
+  }
+}
+$(function(){
+  new GWP()
+})
