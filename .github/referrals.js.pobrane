@@ -1,0 +1,154 @@
+(function() {
+    'use strict';
+
+    var COOKIE_NAME = '_bc_ref';
+
+    var COOKIE_EXPIRY_DAYS = 30;
+    var URL_REF_PARAM_NAME = 'r';
+    var CART_ATTR_NAME = 'brandchamp_ref';
+
+    function myAppJavaScript($) {
+        var bcRefCode = readCookie(COOKIE_NAME);
+        if (!bcRefCode) {
+            bcRefCode = getURLParam(URL_REF_PARAM_NAME);
+            if (bcRefCode) {
+                createCookie(COOKIE_NAME, bcRefCode, COOKIE_EXPIRY_DAYS);
+            }
+        }
+
+        getCart($, function onSuccess(cart) {
+          // Note: Currently, the Shopify GET /cart.js call always returns a cart object even if no cookie set.
+          cart = cart || {};
+          var attributes = cart.attributes || {};
+
+          // The Shopify GET /cart.js call always returns a cart object even if no cookie set.
+          // So check if cart has any state:
+          var isEmptyCart = !(cart.items || []).length &&
+            $.isEmptyObject(attributes); // Object.keys needs polyfill
+
+          // If we don't have a real cart instance, and nothing to write, don't create an unnecessary cart.
+          // Avoids potential issue with cart creation getting throttled
+          if (isEmptyCart && !bcRefCode) {
+            return;
+          }
+
+          // Note: if we don't find a ref code in url or cookie, be sure to set custom attr to empty.
+          // Handles case where cookie expires but attr still in cart
+          var refCodeToWrite = bcRefCode || '';
+          if (attributes[CART_ATTR_NAME] !== refCodeToWrite) {
+            updateCartAttribute($, CART_ATTR_NAME, refCodeToWrite);
+          }
+        });
+    }
+
+    function getURLParam(paramName) {
+        var query = (window.location.search || '').substring(1);
+        var vars = query.split('&');
+        for (var i = 0; i < vars.length; i++) {
+            var paramKV = vars[i].split('=');
+            if (paramKV[0] == paramName) {
+                return paramKV[1];
+            }
+        }
+    }
+
+    // From: http://www.quirksmode.org/js/cookies.html
+    function createCookie(name, value, days) {
+        var expires;
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime()+(days*24*60*60*1000));
+            expires = "; expires="+date.toGMTString();
+        }
+        else {
+            expires = "";
+        }
+        document.cookie = name+"="+value+expires+"; path=/";
+    }
+    function readCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') {
+                c = c.substring(1,c.length);
+            }
+            if (c.indexOf(nameEQ) === 0) {
+                return c.substring(nameEQ.length,c.length);
+            }
+        }
+        return null;
+    }
+
+    function getCart($, onSuccess, onError) {
+        var params = {
+            type: 'GET',
+            url: '/cart.js',
+            dataType: 'json',
+            success: onSuccess,
+            error: onError
+        };
+        $.ajax(params);
+    }
+
+    function updateCartAttribute($, key, val, onSuccess, onError) {
+        var data = 'attributes[' + key + ']=' + val;
+        var params = {
+            type: 'POST',
+            url: '/cart/update.js',
+            data: data,
+            dataType: 'json',
+            success: onSuccess,
+            error: onError
+        };
+        $.ajax(params);
+    }
+
+    if ((typeof jQuery === 'undefined') || versionCompare(jQuery.fn.jquery, '1.7') === -1) {
+        loadScript('//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js', function() {
+            var jQuery191 = jQuery.noConflict(true);
+            myAppJavaScript(jQuery191);
+        });
+    } else {
+        myAppJavaScript(jQuery);
+    }
+
+    function loadScript(url, callback){
+        var script = document.createElement("script");
+        script.type = "text/javascript";
+
+        if (script.readyState){  //IE
+            script.onreadystatechange = function() {
+                if (script.readyState == "loaded" || script.readyState == "complete") {
+                    script.onreadystatechange = null;
+                    callback();
+                }
+            };
+        } else {
+            script.onload = function(){
+                callback();
+            };
+        }
+        script.src = url;
+        document.getElementsByTagName("head")[0].appendChild(script);
+    }
+
+    // From: https://gist.github.com/alexey-bass/1115557
+    function versionCompare(left, right) {
+        if (typeof left + typeof right != 'stringstring') {
+            return false;
+        }
+        var a = left.split('.');
+        var b = right.split('.');
+        var i = 0;
+        var len = Math.max(a.length, b.length);
+        for (; i < len; i++) {
+            if ((a[i] && !b[i] && parseInt(a[i]) > 0) || (parseInt(a[i]) > parseInt(b[i]))) {
+                return 1;
+            } else if ((b[i] && !a[i] && parseInt(b[i]) > 0) || (parseInt(a[i]) < parseInt(b[i]))) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+}());
